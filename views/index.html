@@ -66,14 +66,14 @@
         const date = document.getElementById("date").value
 
         try {
-          const res = await fetch(url + '/:id/exercises', {
+          const res = await fetch(url + '/' + userId + '/exercises', {
             method: 'POST',
             headers: {
             'Content-Type': 'application/json'
             },
             body: JSON.stringify({
               id: userId,
-              desc: description,
+              description,
               dur: duration,
               date: date
             })

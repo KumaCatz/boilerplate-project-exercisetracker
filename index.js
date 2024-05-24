@@ -8,6 +8,7 @@ const client = new MongoClient(process.env.DB_URL);
 const db = client.db("exercise_tracker");
 const user = db.collection("user")
 const exercise = db.collection("exercise")
+const log = db.collection("log")
 const app = express();
 
 app.use(cors());
@@ -28,9 +29,18 @@ app
   .post(async (req, res) => {
     const { username } = req.body;
     const userDoc = {
-      username: username,
+      username
     };
     const result = await user.insertOne(userDoc);
+    const resultUser = await user.findOne({username});
+
+    const addToLog = await log.insertOne({
+      ...userDoc,
+      count: 0,
+      log: [],
+      _id: resultUser._id
+    })
+    
     res.json({
       username: username,
       _id: result.insertedId,
@@ -38,30 +48,48 @@ app
   });
 
 app.post('/api/users/:id/exercises', async (req, res) => {
-    const {id, desc, dur, date} = req.body;
+    const { description, dur, date} = req.body;
+    const {id} = req.params;
 
-    const getUser = user.find({_id: new ObjectId(id)})[0];
+    const getUser = await user.findOne({_id: new ObjectId(id)});
 
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' })
+    if (!getUser) {
+      return res.status(404).json({ error: 'User not found' });
     }
 
     const exerciseDoc = {
-      username: getUser,
-      description: desc,
-      duration: dur,
-      date: date,
-      _id: id
+      description,
+      duration: +dur,
+      date: new Date(date).toISOString(),
     }
 
-    const result = await exercise.insertOne(exerciseDoc);
+    const result = await exercise.insertOne({
+      ...exerciseDoc,
+      username: getUser.username,
+      _id: new ObjectId(id)
+    });
 
-    console.log(result)
-    console.log(user)
-    res.json(exerciseDoc.username)
+    const addToLog = await log.updateOne({_id: new ObjectId(id)}, {
+      $push: { log: exerciseDoc },
+      $inc: { count: 1 }
+    })
+
+    res.json({
+      ...exerciseDoc,
+      _id: id
+    })
   });
 
-app.get('/api/users/:id/logs', (req, res) => {})
+app.get('/api/users/:id/logs', async (req, res) => {
+  const {id} = req.params;
+
+  const getUser = await log.findOne({_id: new ObjectId(id)});
+
+  res.json({
+    ...getUser,
+    _id: id
+  })
+})
 
 
 const listener = app.listen(process.env.PORT || 3000, () => {
