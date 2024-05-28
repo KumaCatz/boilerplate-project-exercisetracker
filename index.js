@@ -34,85 +34,93 @@ app.get('/', (req, res) => {
 app
   .route('/api/users')
   .get(async (req, res) => {
-    const cursor = user.find();
-    const results = await cursor.toArray();
+    const results = await User.find();
     res.json(results);
   })
   .post(async (req, res) => {
     const { username } = req.body;
+    const user = new User({ username: username });
 
-    const user = new User({username: username})
-    await user.save()
-    // const resultUser = await user.findOne({ username });
-
-    // const addToLog = await log.insertOne({
-    //   ...userDoc,
-    //   count: 0,
-    //   log: [],
-    //   _id: resultUser._id,
-    // });
-
-    res.json(user);
+    try {
+      await user.save();
+      res.json(user);
+    } catch(err) {
+      console.log(err)
+    }
   });
 
-app.post('/api/users/:id/exercises', async (req, res) => {
-  const { description, dur, date } = req.body;
-  const { id } = req.params;
+app.post('/api/users/:_id/exercises', async (req, res) => {
+  const { description, duration, date } = req.body;
+  const { _id } = req.params;
 
-  const getUser = await user.findOne({ _id: new ObjectId(id) });
+  try {
+    const user = await User.findById(_id);
 
-  if (!getUser) {
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    } else {
+      const exerciseObj = new Exercise({
+        user_id: user._id,
+        description,
+        duration,
+        date: date ? new Date(date) : new Date(),
+      })
+    
+      const exercise = await exerciseObj.save()
+    
+      res.json({
+        username: user.username,
+        description: exercise.description,
+        duration: exercise.duration,
+        date: new Date(exercise.date).toDateString(),
+        _id: user._id
+      });
+    }
+  } catch(err) {
+    console.log(err)
+  }
+});
+
+app.get('/api/users/:_id/logs', async (req, res) => {
+  const { _id } = req.params;
+  const { from, to, limit } = req.query
+  const user = await User.findById(_id)
+
+  if (!user) {
     return res.status(404).json({ error: 'User not found' });
   }
 
-  let exerciseDate;
-  if (date) {
-    const parsedDate = new Date(date);
-    if (!isNaN(parsedDate)) {
-      exerciseDate = parsedDate.toISOString();
-    } else {
-      res.json({ error: 'invalid date format' });
-    }
-  } else {
-    exerciseDate = new Date().toISOString();
+  let dateObj = {}
+  if (from) {
+    dateObj["$gte"] = new Date(from)
+  }
+  if (to) {
+    dateObj["$lte"] = new Date(to)
   }
 
-  const exerciseDoc = {
-    description,
-    duration: +dur,
-    date: exerciseDate,
-  };
+  let filter = {
+    user_id: _id
+  }
 
-  const result = await exercise.insertOne({
-    ...exerciseDoc,
-    username: getUser.username,
-    _id: new ObjectId(id),
-  });
+  if(from || to) {
+    filter.date = dateObj
+  }
 
-  const addToLog = await log.updateOne(
-    { _id: new ObjectId(id) },
-    {
-      $push: { log: exerciseDoc },
-      $inc: { count: 1 },
-    }
-  );
+  const exercises = await Exercise.find(filter).limit(+limit ?? 500)
+
+  const log = exercises.map(e => ({
+    description: e.description,
+    duration: e.duration,
+    date: e.date.toDateString()
+  }))
 
   res.json({
-    ...exerciseDoc,
-    username: getUser.username,
-    _id: id,
-  });
-});
+    username: user.username,
+    count: exercises.length,
+    _id: user._id,
+    log
+  })
 
-app.get('/api/users/:id/logs', async (req, res) => {
-  const { id } = req.params;
-
-  const getUser = await log.findOne({ _id: new ObjectId(id) });
-
-  res.json({
-    ...getUser,
-    _id: id,
-  });
 });
 
 const listener = app.listen(process.env.PORT || 3000, () => {
